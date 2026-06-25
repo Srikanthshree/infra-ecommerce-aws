@@ -1,0 +1,169 @@
+# =========================================================
+# Terraform Infrastructure CI/CD
+#
+# Authentication:  AWS OIDC — zero static credentials.
+# Security gates:  Trivy IaC scan + tfsec must pass before
+#                  Terraform apply is attempted.
+# Trigger:         Push to main → plan + apply (production)
+#                  Pull-request  → validate + plan only
+# =========================================================
+
+name: "Terraform Infrastructure CI/CD"
+
+on:
+  push:
+    branches: ["main"]
+  pull_request:
+    branches: ["main"]
+
+# Minimum permissions; each job adds only what it needs.
+permissions:
+  contents: read
+
+concurrency:
+  group: terraform-${{ github.ref }}
+  cancel-in-progress: false   # Never cancel a running apply
+
+env:
+  TF_VERSION:  "1.8.5"
+  AWS_REGION:  "us-east-1"
+
+# =========================================================
+# Job 1 — IaC Security Scan
+# Runs on every push and PR. Terraform apply is blocked
+# until this job succeeds.
+# =========================================================
+jobs:
+  iac-security-scan:
+    name: "IaC Security Scan (Trivy + tfsec)"
+    runs-on: ubuntu-latest
+    permissions:
+      contents:        read
+      security-events: write   # Upload SARIF to GitHub Security tab
+
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+
+      # ── Trivy IaC (misconfigurations) ──────────────────────────
+      - name: "Trivy — IaC misconfiguration scan"
+        uses: aquasecurity/trivy-action@0.24.0
+        with:
+          scan-type:  "config"
+          scan-ref:   "."
+          format:     "sarif"
+          output:     "trivy-iac.sarif"
+          severity:   "CRITICAL,HIGH"
+          exit-code:  "1"
+
+      - name: "Upload Trivy IaC results → GitHub Security"
+        uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: "trivy-iac.sarif"
+          category:   "trivy-iac"
+
+      # ── tfsec (Terraform-specific rules) ───────────────────────
+      - name: "tfsec — Terraform security analysis"
+        uses: aquasecurity/tfsec-action@v1.0.3
+        with:
+          soft_fail: false
+          format:    sarif
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+
+  # =========================================================
+  # Job 2 — Terraform Validate & Plan (all branches)
+  # =========================================================
+  terraform-plan:
+    name: "Terraform Validate & Plan"
+    runs-on: ubuntu-latest
+    needs: iac-security-scan
+    permissions:
+      id-token: write    # Required to request the OIDC JWT
+      contents: read
+
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+
+      # ── OIDC Authentication (no static keys) ───────────────────
+      - name: "Configure AWS credentials via OIDC"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume:    ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region:        ${{ env.AWS_REGION }}
+          role-session-name: "GitHubActions-TFPlan-${{ github.run_number }}"
+
+      # ── Terraform setup ─────────────────────────────────────────
+      - name: "Setup Terraform ${{ env.TF_VERSION }}"
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: "Terraform Format Check"
+        run: terraform fmt -check -recursive
+
+      - name: "Terraform Init"
+        run: terraform init -input=false
+
+      - name: "Terraform Validate"
+        run: terraform validate
+
+      - name: "Terraform Plan"
+        run: |
+          terraform plan \
+            -out=tfplan \
+            -no-color \
+            -input=false
+        env:
+          TF_VAR_github_org: ${{ vars.GITHUB_ORG }}
+
+      # Store the plan so the apply job can consume it
+      - name: "Upload Terraform plan artifact"
+        uses: actions/upload-artifact@v4
+        with:
+          name: tfplan
+          path: tfplan
+          retention-days: 1
+
+  # =========================================================
+  # Job 3 — Terraform Apply (main branch only)
+  # Requires human approval via GitHub Environments if
+  # the 'production' environment has required reviewers set.
+  # =========================================================
+  terraform-apply:
+    name: "Terraform Apply (production)"
+    runs-on: ubuntu-latest
+    needs: terraform-plan
+    if: github.ref == 'refs/heads/main' && github.event_name == 'push'
+    environment: production
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      - name: "Checkout"
+        uses: actions/checkout@v4
+
+      - name: "Configure AWS credentials via OIDC"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume:    ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          aws-region:        ${{ env.AWS_REGION }}
+          role-session-name: "GitHubActions-TFApply-${{ github.run_number }}"
+
+      - name: "Setup Terraform ${{ env.TF_VERSION }}"
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: "Terraform Init"
+        run: terraform init -input=false
+
+      - name: "Download Terraform plan artifact"
+        uses: actions/download-artifact@v4
+        with:
+          name: tfplan
+
+      - name: "Terraform Apply"
+        run: terraform apply -auto-approve -input=false tfplan
