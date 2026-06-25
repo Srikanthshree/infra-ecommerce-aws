@@ -41,7 +41,7 @@ resource "aws_iam_role" "github_infra" {
         }
         # Strictly scoped to the infra-aws-eks repository only
         StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/infra-aws-eks:*"
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/infra-ecommerce-aws:*"
         }
       }
     }]
@@ -68,7 +68,7 @@ resource "aws_iam_role" "github_app" {
         }
         # Strictly scoped to the ecommerce-app repository only
         StringLike = {
-          "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/ecommerce-app:*"
+          "token.actions.githubusercontent.com:sub" = "repo:${var.github_org}/ecommerce-application-:*"
         }
       }
     }]
