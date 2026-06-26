@@ -25,7 +25,7 @@ terraform {
     key            = "ecommerce/main/terraform.tfstate"
     region         = "us-east-1"
     encrypt        = true
-    dynamodb_table = "ecommerce-application-statefile"
+    dynamodb_table = "statefile"
   }
 }
 
