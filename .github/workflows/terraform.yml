@@ -186,6 +186,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Print OIDC sub claim (diagnostic — shows exact value AWS evaluates)
+        shell: bash
+        run: |
+          set -euo pipefail
+          TOKEN_URL="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com"
+          ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$TOKEN_URL" | jq -r '.value')
+          PAYLOAD=$(printf '%s' "$ID_TOKEN" | cut -d'.' -f2)
+          PAD=$((4 - ${#PAYLOAD} % 4)); [ $PAD -lt 4 ] && PAYLOAD="${PAYLOAD}$(printf '=%.0s' $(seq 1 $PAD))"
+          echo "=== OIDC claims for THIS job ==="
+          printf '%s' "$PAYLOAD" | tr '_-' '/+' | base64 --decode | jq '{sub,aud,iss,repository,environment,ref,job_workflow_ref}'
+          echo "=== Trust policy must match the sub value above ==="
+
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
