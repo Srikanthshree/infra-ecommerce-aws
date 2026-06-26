@@ -193,12 +193,12 @@ resource "aws_vpc_endpoint" "s3" {
 # ── Interface Endpoints (one per service, deployed in all private subnets) ────
 locals {
   interface_endpoints = {
-    "ecr-api"        = "com.amazonaws.${var.aws_region}.ecr.api"
-    "ecr-dkr"        = "com.amazonaws.${var.aws_region}.ecr.dkr"
-    "sts"            = "com.amazonaws.${var.aws_region}.sts"
-    "ec2"            = "com.amazonaws.${var.aws_region}.ec2"
-    "logs"           = "com.amazonaws.${var.aws_region}.logs"
-    "secretsmanager" = "com.amazonaws.${var.aws_region}.secretsmanager"
+    "ecr-api"              = "com.amazonaws.${var.aws_region}.ecr.api"
+    "ecr-dkr"              = "com.amazonaws.${var.aws_region}.ecr.dkr"
+    "sts"                  = "com.amazonaws.${var.aws_region}.sts"
+    "ec2"                  = "com.amazonaws.${var.aws_region}.ec2"
+    "logs"                 = "com.amazonaws.${var.aws_region}.logs"
+    "secretsmanager"       = "com.amazonaws.${var.aws_region}.secretsmanager"
     "elasticloadbalancing" = "com.amazonaws.${var.aws_region}.elasticloadbalancing"
   }
 }
@@ -211,7 +211,7 @@ resource "aws_vpc_endpoint" "interface" {
   vpc_endpoint_type   = "Interface"
   subnet_ids          = aws_subnet.private[*].id
   security_group_ids  = [aws_security_group.vpc_endpoints.id]
-  private_dns_enabled = true   # resolve *.amazonaws.com → endpoint IP, not internet
+  private_dns_enabled = true # resolve *.amazonaws.com → endpoint IP, not internet
 
   tags = { Name = "${var.project_name}-${each.key}-endpoint" }
 }

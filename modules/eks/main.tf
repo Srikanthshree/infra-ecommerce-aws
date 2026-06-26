@@ -170,7 +170,7 @@ resource "aws_eks_cluster" "this" {
     subnet_ids              = concat(var.private_subnet_ids, var.public_subnet_ids)
     security_group_ids      = [aws_security_group.eks_cluster.id]
     endpoint_private_access = true
-    endpoint_public_access  = true   # required: GitHub Actions runner runs kubectl from outside VPC
+    endpoint_public_access  = true # required: GitHub Actions runner runs kubectl from outside VPC
   }
 
   # Envelope encryption for all Kubernetes Secrets in etcd
