@@ -170,7 +170,7 @@ resource "aws_eks_cluster" "this" {
     subnet_ids              = concat(var.private_subnet_ids, var.public_subnet_ids)
     security_group_ids      = [aws_security_group.eks_cluster.id]
     endpoint_private_access = true
-    endpoint_public_access  = false
+    endpoint_public_access  = true   # required: GitHub Actions runner runs kubectl from outside VPC
   }
 
   # Envelope encryption for all Kubernetes Secrets in etcd
@@ -462,5 +462,30 @@ resource "aws_ecr_lifecycle_policy" "frontend" {
         }
       }
     ]
+  })
+}
+
+# ── Product Catalog ECR (Python / FastAPI service) ────────────────────────────
+resource "aws_ecr_repository" "catalog" {
+  name                 = "${var.project_name}/catalog"
+  image_tag_mutability = "IMMUTABLE"
+
+  image_scanning_configuration { scan_on_push = true }
+  encryption_configuration {
+    encryption_type = "KMS"
+    kms_key         = aws_kms_key.eks_secrets.arn
+  }
+  tags = { Name = "${var.project_name}-catalog-ecr" }
+}
+
+resource "aws_ecr_lifecycle_policy" "catalog" {
+  repository = aws_ecr_repository.catalog.name
+  policy = jsonencode({
+    rules = [{
+      rulePriority = 1
+      description  = "Retain last 10 images"
+      selection    = { tagStatus = "any", countType = "imageCountMoreThan", countNumber = 10 }
+      action       = { type = "expire" }
+    }]
   })
 }

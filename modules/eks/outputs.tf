@@ -39,6 +39,11 @@ output "ecr_frontend_url" {
   value       = aws_ecr_repository.frontend.repository_url
 }
 
+output "ecr_catalog_url" {
+  description = "ECR repository URL for the Python catalog image"
+  value       = aws_ecr_repository.catalog.repository_url
+}
+
 output "ecr_backend_arn" {
   description = "ECR backend repository ARN — passed to module/oidc_github for push policy"
   value       = aws_ecr_repository.backend.arn
@@ -47,4 +52,9 @@ output "ecr_backend_arn" {
 output "ecr_frontend_arn" {
   description = "ECR frontend repository ARN — passed to module/oidc_github for push policy"
   value       = aws_ecr_repository.frontend.arn
+}
+
+output "ecr_catalog_arn" {
+  description = "ECR catalog repository ARN"
+  value       = aws_ecr_repository.catalog.arn
 }

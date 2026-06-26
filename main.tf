@@ -20,6 +20,7 @@ module "vpc" {
   public_subnet_cidrs  = var.public_subnet_cidrs
   private_subnet_cidrs = var.private_subnet_cidrs
   eks_cluster_name     = var.eks_cluster_name
+  aws_region           = var.aws_region
 }
 
 module "eks" {

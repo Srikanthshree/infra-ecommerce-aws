@@ -44,3 +44,9 @@ variable "eks_cluster_name" {
   description = "EKS cluster name — used for Kubernetes subnet tagging."
   type        = string
 }
+
+variable "aws_region" {
+  description = "AWS region — used for VPC endpoint service names."
+  type        = string
+  default     = "us-east-1"
+}
