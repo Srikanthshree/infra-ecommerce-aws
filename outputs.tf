@@ -57,13 +57,3 @@ output "db_endpoint" {
   sensitive   = true
 }
 
-# ── GitHub Actions OIDC ───────────────────────────────────────────────────────
-output "github_actions_infra_role_arn" {
-  description = "Set as AWS_OIDC_ROLE_ARN in the infra-aws-eks repository secrets"
-  value       = module.oidc_github.github_actions_infra_role_arn
-}
-
-output "github_actions_app_role_arn" {
-  description = "Set as AWS_OIDC_ROLE_ARN in the ecommerce-app repository secrets"
-  value       = module.oidc_github.github_actions_app_role_arn
-}

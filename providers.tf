@@ -18,14 +18,14 @@ terraform {
 
   # Remote state in S3 with DynamoDB locking.
   # The bucket and table must exist before running terraform init.
-  # Values are intentionally left as variables; supply them via -backend-config
+  # Values are intentionally left as variables; supply them via -backend-config 
   # or a backend.hcl file — never hard-code them here.
   backend "s3" {
-  bucket         = "ecommerce-application-state-file"
-  key            = "ecommerce/main/terraform.tfstate"
-  region         = "us-east-1"
-  encrypt        = true
-  dynamodb_table = "ecommerce-application-statefile"
+    bucket         = "ecommerce-application-state-file"
+    key            = "ecommerce/main/terraform.tfstate"
+    region         = "us-east-1"
+    encrypt        = true
+    dynamodb_table = "ecommerce-application-statefile"
   }
 }
 
