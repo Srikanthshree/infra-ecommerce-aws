@@ -90,7 +90,7 @@ jobs:
       - name: "Configure AWS credentials via OIDC"
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume:    ${{ secrets.AWS_OIDC_ROLE_ARN }}
+          role-to-assume:    arn:aws:iam::986314681697:role/infra-application-oidc-role-github
           aws-region:        ${{ env.AWS_REGION }}
           role-session-name: "GitHubActions-TFPlan-${{ github.run_number }}"
 
