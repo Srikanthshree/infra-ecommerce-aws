@@ -7,7 +7,7 @@
 #   module.vpc         : VPC, subnets, NAT GW, route tables, flow logs
 #   module.eks         : EKS cluster, node group, ECR, IRSA role (trust only)
 #   module.rds         : RDS PostgreSQL, Secrets Manager, IRSA policy attachment
-#   module.oidc_github : GitHub Actions OIDC provider + IAM roles/policies
+#   module.oidc_github : GitHub Actions OIDC provider + IAM roles/policies 
 # =============================================================================
 
 module "vpc" {
