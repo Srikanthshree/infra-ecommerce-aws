@@ -1,4 +1,4 @@
-name: "Terraform Infrastructure CI/CD (OIDC debug)"
+name: "Terraform Infrastructure CI/CD (OIDC debugg)"
 
 on:
   push:
