@@ -1,0 +1,136 @@
+# =============================================================================
+# Terraform DESTROY Pipeline
+#
+# PURPOSE  : Tears down ALL AWS infrastructure created by the apply pipeline.
+# TRIGGER  : Manual only (workflow_dispatch) — never runs automatically.
+# SAFETY   : Requires typing "destroy" in the confirmation input.
+# WARNING  : This is IRREVERSIBLE. All data (RDS, S3, EKS) will be deleted.
+# =============================================================================
+
+name: "Terraform DESTROY Infrastructure"
+
+on:
+  workflow_dispatch:
+    inputs:
+      confirm:
+        description: 'Type "destroy" to confirm you want to destroy ALL infrastructure'
+        required: true
+        type: string
+      reason:
+        description: "Why are you destroying? (for audit log)"
+        required: true
+        type: string
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  TF_VERSION: "1.8.5"
+  AWS_REGION:  "us-east-1"
+
+jobs:
+  destroy:
+    name: "Terraform Destroy (production)"
+    runs-on: ubuntu-latest
+    environment: production
+
+    permissions:
+      id-token: write
+      contents: read
+
+    steps:
+      # ── Safety gate ───────────────────────────────────────────────────────
+      - name: "Confirm destruction"
+        run: |
+          if [ "${{ github.event.inputs.confirm }}" != "destroy" ]; then
+            echo "ERROR: You must type 'destroy' in the confirmation field."
+            echo "You typed: ${{ github.event.inputs.confirm }}"
+            exit 1
+          fi
+          echo "Confirmed. Reason: ${{ github.event.inputs.reason }}"
+          echo "Triggered by: ${{ github.actor }} at $(date -u)"
+
+      - name: "Checkout"
+        uses: actions/checkout@v4
+
+      # ── AWS auth ─────────────────────────────────────────────────────────
+      - name: "Configure AWS credentials via OIDC"
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          role-to-assume:    ${{ secrets.AWS_IAM_ARN }}
+          aws-region:        ${{ env.AWS_REGION }}
+          role-session-name: "GitHubActions-TFDestroy-${{ github.run_number }}"
+
+      - name: "Verify AWS identity"
+        run: aws sts get-caller-identity --output json
+
+      # ── Terraform setup ──────────────────────────────────────────────────
+      - name: "Setup Terraform ${{ env.TF_VERSION }}"
+        uses: hashicorp/setup-terraform@v3
+        with:
+          terraform_version: ${{ env.TF_VERSION }}
+
+      - name: "Terraform Init"
+        run: terraform init -input=false
+
+      # ── Pre-destroy: drain EKS workloads gracefully ──────────────────────
+      - name: "Update kubeconfig (if cluster exists)"
+        continue-on-error: true
+        run: |
+          aws eks update-kubeconfig --region "${{ env.AWS_REGION }}" --name ecommerce-eks
+          kubectl get nodes -o wide || true
+
+      - name: "Delete Kubernetes workloads before destroy (prevents stuck resources)"
+        continue-on-error: true
+        run: |
+          # Delete ingress first so ALB Controller removes the ALB from AWS
+          kubectl delete ingress --all -n ecommerce --timeout=120s || true
+          # Wait for ALB to be removed
+          echo "Waiting 60s for ALB to be deleted by ALB Controller..."
+          sleep 60
+          # Delete all other workloads
+          kubectl delete deployment,service,configmap,secret --all -n ecommerce --timeout=120s || true
+          kubectl delete namespace ecommerce --timeout=120s || true
+
+      # ── Terraform Destroy ─────────────────────────────────────────────────
+      - name: "Terraform Plan -destroy (preview)"
+        run: |
+          terraform plan \
+            -destroy \
+            -out=destroy-plan \
+            -no-color \
+            -input=false
+
+      - name: "Terraform Destroy"
+        run: |
+          terraform apply \
+            -auto-approve \
+            -input=false \
+            destroy-plan
+
+      # ── Post-destroy verification ─────────────────────────────────────────
+      - name: "Verify EKS cluster deleted"
+        continue-on-error: true
+        run: |
+          STATUS=$(aws eks describe-cluster --name ecommerce-eks --query "cluster.status" --output text 2>&1 || echo "DELETED")
+          echo "EKS status: $STATUS"
+
+      - name: "Verify RDS deleted"
+        continue-on-error: true
+        run: |
+          aws rds describe-db-instances \
+            --query "DBInstances[?contains(DBInstanceIdentifier,'ecommerce')].{ID:DBInstanceIdentifier,Status:DBInstanceStatus}" \
+            --output table || echo "No RDS instances found"
+
+      - name: "Summary"
+        run: |
+          echo "============================================"
+          echo "DESTROY COMPLETE"
+          echo "Triggered by : ${{ github.actor }}"
+          echo "Reason       : ${{ github.event.inputs.reason }}"
+          echo "Time         : $(date -u)"
+          echo "============================================"
+          echo "The Terraform state file still exists in S3."
+          echo "The S3 bucket and DynamoDB lock table are NOT deleted."
+          echo "(They were created manually, not by Terraform)"

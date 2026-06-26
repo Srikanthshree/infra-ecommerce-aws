@@ -84,11 +84,25 @@ resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
 # Security Groups
 # =============================================================================
 
-# Control Plane SG — allows the API server to communicate with worker nodes
+# Look up VPC CIDR so we can allow nodes → private API server without circular SG ref
+data "aws_vpc" "this" {
+  id = var.vpc_id
+}
+
+# Control Plane SG — controls access to the private EKS API endpoint ENI
 resource "aws_security_group" "eks_cluster" {
   name        = "${var.project_name}-eks-cluster-sg"
-  description = "EKS control plane - egress to worker nodes only"
+  description = "EKS control plane - ingress from VPC on 443, egress all"
   vpc_id      = var.vpc_id
+
+  # Nodes need to reach the private API server on 443 to bootstrap and join
+  ingress {
+    description = "Nodes to private API server (port 443)"
+    from_port   = 443
+    to_port     = 443
+    protocol    = "tcp"
+    cidr_blocks = [data.aws_vpc.this.cidr_block]
+  }
 
   egress {
     description = "Allow all outbound from control plane"
@@ -306,10 +320,11 @@ resource "aws_launch_template" "eks_nodes" {
   block_device_mappings {
     device_name = "/dev/xvda"
     ebs {
-      volume_size           = var.eks_node_disk_size_gb
-      volume_type           = "gp3"
-      encrypted             = true
-      kms_key_id            = aws_kms_key.eks_secrets.arn
+      volume_size = var.eks_node_disk_size_gb
+      volume_type = "gp3"
+      encrypted   = true
+      # Use the AWS-managed EBS key (alias/aws/ebs) — no custom KMS grants needed.
+      # The eks_secrets KMS key is for etcd (control-plane secrets) only.
       delete_on_termination = true
     }
   }
