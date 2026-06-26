@@ -1,4 +1,4 @@
-name: "Terraform Infrastructure CI/CD (OIDC debugg)"
+name: "Terraform Infrastructure CI/CD (OIDC debug)"
 
 on:
   push:
@@ -67,7 +67,7 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Debug: fetch raw OIDC id token and decode claims
+      - name: Debug fetch raw OIDC id token and decode claims
         shell: bash
         env:
           ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
@@ -101,7 +101,7 @@ jobs:
           echo "---- decoded claims ----"
           printf '%s' "$PAYLOAD_B64" | tr '_-' '/+' | base64 --decode | jq .
 
-      - name: Debug: direct aws sts assume-role-with-web-identity (diagnostic)
+      - name: Debug direct aws sts assume-role-with-web-identity (diagnostic)
         shell: bash
         env:
           ROLE_ARN: ${{ secrets.IAM_ROLE_ARN }}
@@ -120,7 +120,6 @@ jobs:
             else
               sed -n '1,200p' assume-output.json
             fi
-            # Do not fail the job here — continue to run the official action for comparison
             echo "Continuing to run the official action for comparison..."
           else
             echo "assume-role-with-web-identity succeeded; extracting temporary creds (masked)"
@@ -130,7 +129,6 @@ jobs:
             export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
             echo "Caller identity using temporary creds from assume-role-with-web-identity:"
             aws sts get-caller-identity --output json
-            # Unset temporary creds to avoid interfering with next steps
             unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
           fi
 
@@ -141,7 +139,7 @@ jobs:
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: "GitHubActions-TFPlan-${{ github.run_number }}"
 
-      - name: Debug: AWS caller identity (after action)
+      - name: Debug AWS caller identity after action
         shell: bash
         run: |
           set -euo pipefail
