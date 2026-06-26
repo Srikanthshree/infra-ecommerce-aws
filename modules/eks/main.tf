@@ -87,7 +87,7 @@ resource "aws_iam_role_policy_attachment" "eks_cluster_policy" {
 # Control Plane SG — allows the API server to communicate with worker nodes
 resource "aws_security_group" "eks_cluster" {
   name        = "${var.project_name}-eks-cluster-sg"
-  description = "EKS control plane — egress to worker nodes only"
+  description = "EKS control plane - egress to worker nodes only"
   vpc_id      = var.vpc_id
 
   egress {
@@ -111,7 +111,7 @@ resource "aws_security_group" "eks_cluster" {
 # Worker Nodes SG — also referenced by module/rds to allow port 5432
 resource "aws_security_group" "eks_nodes" {
   name        = "${var.project_name}-eks-nodes-sg"
-  description = "EKS worker nodes — node-to-node + control-plane traffic"
+  description = "EKS worker nodes - node-to-node + control-plane traffic"
   vpc_id      = var.vpc_id
 
   ingress {
@@ -123,7 +123,7 @@ resource "aws_security_group" "eks_nodes" {
   }
 
   ingress {
-    description     = "Control plane to node — kubelet and admission webhooks"
+    description     = "Control plane to node - kubelet and admission webhooks"
     from_port       = 1025
     to_port         = 65535
     protocol        = "tcp"
@@ -131,7 +131,7 @@ resource "aws_security_group" "eks_nodes" {
   }
 
   ingress {
-    description     = "Control plane to node — metrics and exec"
+    description     = "Control plane to node - metrics and exec"
     from_port       = 443
     to_port         = 443
     protocol        = "tcp"
