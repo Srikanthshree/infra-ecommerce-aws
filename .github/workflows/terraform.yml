@@ -90,7 +90,7 @@ jobs:
       - name: "Configure AWS credentials via OIDC"
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume:    arn:aws:iam::986314681697:role/infra-application-oidc-role-github
+          role-to-assume:    ${{ secrets.AWS_OIDC_ROLE_ARN }}
           aws-region:        ${{ env.AWS_REGION }}
           role-session-name: "GitHubActions-TFPlan-${{ github.run_number }}"
 
@@ -148,15 +148,9 @@ jobs:
       - name: "Configure AWS credentials via OIDC"
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume:     # ── OIDC Authentication (no static keys) ───────────────────
-      - name: "Configure AWS credentials via OIDC"
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
           role-to-assume:    ${{ secrets.AWS_OIDC_ROLE_ARN }}
           aws-region:        ${{ env.AWS_REGION }}
-          role-session-name: "GitHubActions-TFPlan-${{ github.run_number }}"
-
-       
+          role-session-name: "GitHubActions-TFApply-${{ github.run_number }}"
 
       - name: "Setup Terraform ${{ env.TF_VERSION }}"
         uses: hashicorp/setup-terraform@v3
@@ -173,3 +167,7 @@ jobs:
 
       - name: "Terraform Apply"
         run: terraform apply -auto-approve -input=false tfplan
+
+
+
+        
