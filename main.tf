@@ -53,13 +53,3 @@ module "rds" {
   db_instance_class       = var.db_instance_class
   db_allocated_storage_gb = var.db_allocated_storage_gb
 }
-
-module "oidc_github" {
-  source = "./modules/oidc_github"
-
-  project_name     = var.project_name
-  github_org       = var.github_org
-  ecr_backend_arn  = module.eks.ecr_backend_arn
-  ecr_frontend_arn = module.eks.ecr_frontend_arn
-  eks_cluster_arn  = module.eks.eks_cluster_arn
-}

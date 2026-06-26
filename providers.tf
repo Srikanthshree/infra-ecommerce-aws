@@ -22,7 +22,7 @@ terraform {
   # or a backend.hcl file — never hard-code them here.
   backend "s3" {
   bucket         = "ecommerce-application-state-file"
-  key            = "ecommerce/prod/terraform.tfstate"
+  key            = "ecommerce/main/terraform.tfstate"
   region         = "us-east-1"
   encrypt        = true
   dynamodb_table = "ecommerce-application-statefile"
