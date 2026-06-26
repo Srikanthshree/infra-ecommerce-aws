@@ -1,4 +1,4 @@
-name: "Terraform Infrastructure CI/CD (with OIDC debug)"
+name: "Terraform Infrastructure CI/CD (OIDC debug)"
 
 on:
   push:
@@ -19,9 +19,6 @@ env:
   AWS_REGION: "us-east-1"
 
 jobs:
-  # ---------------------------------------------------------
-  # IaC security scan (unchanged)
-  # ---------------------------------------------------------
   iac-security-scan:
     name: "IaC Security Scan (Trivy + tfsec)"
     runs-on: ubuntu-latest
@@ -29,10 +26,10 @@ jobs:
       contents: read
       security-events: write
     steps:
-      - name: "Checkout"
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: "Trivy — IaC misconfiguration scan"
+      - name: Trivy — IaC misconfiguration scan
         uses: aquasecurity/trivy-action@v0.36.0
         with:
           scan-type: "config"
@@ -42,78 +39,75 @@ jobs:
           severity: "CRITICAL,HIGH"
           exit-code: "0"
 
-      - name: "Upload Trivy IaC results → GitHub Security"
+      - name: Upload Trivy IaC results → GitHub Security
         uses: github/codeql-action/upload-sarif@v3
         if: always()
         with:
           sarif_file: "trivy-iac.sarif"
           category: "trivy-iac"
 
-      - name: "tfsec — Terraform security analysis"
+      - name: tfsec — Terraform security analysis
         uses: aquasecurity/tfsec-action@v1.0.3
         with:
           soft_fail: false
           format: sarif
           github_token: ${{ secrets.GITHUB_TOKEN }}
 
-  # ---------------------------------------------------------
-  # Terraform Validate & Plan (with OIDC debug)
-  # ---------------------------------------------------------
   terraform-plan:
-    name: "Terraform Validate & Plan"
+    name: "Terraform Validate & Plan (with OIDC debug)"
     runs-on: ubuntu-latest
     needs: iac-security-scan
     permissions:
       id-token: write
       contents: read
-    
+    env:
+      AWS_REGION: ${{ env.AWS_REGION }}
 
     steps:
-      - name: "Checkout"
+      - name: Checkout
         uses: actions/checkout@v4
 
-      # -------------------------
-      # Debug: fetch and decode OIDC id token
-      # -------------------------
-      - name: "Debug: fetch and decode OIDC id token"
+      - name: Debug: fetch raw OIDC id token and decode claims
         shell: bash
         env:
           ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
           ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
         run: |
           set -euo pipefail
-
           echo "Requesting id token for audience sts.amazonaws.com"
           TOKEN_URL="${ACTIONS_ID_TOKEN_REQUEST_URL}&audience=sts.amazonaws.com"
-          ID_TOKEN=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$TOKEN_URL")
 
-          # Truncate raw token in logs for safety
-          echo "---- raw token (truncated) ----"
-          echo "${ID_TOKEN:0:80}...${ID_TOKEN: -80}"
+          # Endpoint returns JSON: {"value":"<JWT>"}
+          RAW_JSON=$(curl -sS -H "Authorization: Bearer ${ACTIONS_ID_TOKEN_REQUEST_TOKEN}" "$TOKEN_URL")
+          echo "---- raw response (truncated) ----"
+          echo "${RAW_JSON:0:120}...${RAW_JSON: -120}"
 
-          # Save token to file for later CLI tests (do not print file contents)
+          # Extract raw JWT from JSON response
+          ID_TOKEN=$(printf '%s' "$RAW_JSON" | jq -r '.value')
+          if [ -z "$ID_TOKEN" ] || [ "$ID_TOKEN" = "null" ]; then
+            echo "ERROR: id token not found in response"
+            printf '%s\n' "$RAW_JSON"
+            exit 1
+          fi
+
+          # Save raw JWT to file (file contains only the JWT)
           printf '%s' "$ID_TOKEN" > id_token.jwt
           chmod 600 id_token.jwt
 
-          # Decode payload (2nd part of JWT)
-          PAYLOAD_B64=$(echo "$ID_TOKEN" | cut -d'.' -f2)
+          # Decode payload (2nd part of JWT) and print claims
+          PAYLOAD_B64=$(printf '%s' "$ID_TOKEN" | cut -d'.' -f2)
           PAD=$((4 - ${#PAYLOAD_B64} % 4))
           if [ $PAD -lt 4 ]; then PAYLOAD_B64="${PAYLOAD_B64}$(printf '=%.0s' $(seq 1 $PAD))"; fi
-
           echo "---- decoded claims ----"
-          echo "$PAYLOAD_B64" | tr '_-' '/+' | base64 --decode | jq .
+          printf '%s' "$PAYLOAD_B64" | tr '_-' '/+' | base64 --decode | jq .
 
-      # -------------------------
-      # Direct AWS CLI test: assume-role-with-web-identity using the raw token
-      # -------------------------
-      - name: "Debug: attempt aws sts assume-role-with-web-identity"
+      - name: Debug: direct aws sts assume-role-with-web-identity (diagnostic)
         shell: bash
         env:
-          ROLE_ARN: ${{ secrets.AWS_IAM_ARN }}
+          ROLE_ARN: ${{ secrets.IAM_ROLE_ARN }}
         run: |
           set -euo pipefail
-          echo "Attempting aws sts assume-role-with-web-identity (diagnostic)."
-          # Use a short duration to limit exposure
+          echo "Attempting aws sts assume-role-with-web-identity using id_token.jwt"
           if ! aws sts assume-role-with-web-identity \
             --role-arn "$ROLE_ARN" \
             --role-session-name "gh-debug-$(date +%s)" \
@@ -121,61 +115,56 @@ jobs:
             --duration-seconds 900 \
             --output json > assume-output.json 2>&1; then
             echo "assume-role-with-web-identity failed; printing error snippet:"
-            jq -r '. | {Error: .}' assume-output.json || cat assume-output.json
-            exit 0
+            if jq -e . >/dev/null 2>&1 < assume-output.json; then
+              jq -r '. | {Error: .}' assume-output.json
+            else
+              sed -n '1,200p' assume-output.json
+            fi
+            # Do not fail the job here — continue to run the official action for comparison
+            echo "Continuing to run the official action for comparison..."
+          else
+            echo "assume-role-with-web-identity succeeded; extracting temporary creds (masked)"
+            AWS_ACCESS_KEY_ID=$(jq -r '.Credentials.AccessKeyId' assume-output.json)
+            AWS_SECRET_ACCESS_KEY=$(jq -r '.Credentials.SecretAccessKey' assume-output.json)
+            AWS_SESSION_TOKEN=$(jq -r '.Credentials.SessionToken' assume-output.json)
+            export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
+            echo "Caller identity using temporary creds from assume-role-with-web-identity:"
+            aws sts get-caller-identity --output json
+            # Unset temporary creds to avoid interfering with next steps
+            unset AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
           fi
 
-          echo "assume-role-with-web-identity succeeded; extracting temporary creds (masked in logs)."
-          AWS_ACCESS_KEY_ID=$(jq -r '.Credentials.AccessKeyId' assume-output.json)
-          AWS_SECRET_ACCESS_KEY=$(jq -r '.Credentials.SecretAccessKey' assume-output.json)
-          AWS_SESSION_TOKEN=$(jq -r '.Credentials.SessionToken' assume-output.json)
-
-          # Use the returned temporary creds to call get-caller-identity
-          export AWS_ACCESS_KEY_ID AWS_SECRET_ACCESS_KEY AWS_SESSION_TOKEN
-          echo "Caller identity using temporary creds from assume-role-with-web-identity:"
-          aws sts get-caller-identity --output json
-
-      # -------------------------
-      # Configure AWS credentials via the official action (normal path)
-      # -------------------------
-      - name: "Configure AWS credentials via OIDC (action)"
+      - name: Configure AWS credentials via OIDC (official action)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_IAM_ARN }}
+          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: "GitHubActions-TFPlan-${{ github.run_number }}"
 
-      # -------------------------
-      # Verify what AWS sees after the action (caller identity)
-      # -------------------------
-      - name: "Debug: AWS caller identity (after action)"
+      - name: Debug: AWS caller identity (after action)
         shell: bash
         run: |
           set -euo pipefail
-          echo "Environment variables (filtered):"
+          echo "Filtered env (AWS/GITHUB):"
           env | grep -E 'AWS|GITHUB' || true
-
           echo "Caller identity (after configure-aws-credentials action):"
           aws sts get-caller-identity --output json || true
 
-      # -------------------------
-      # Terraform setup and plan (unchanged)
-      # -------------------------
-      - name: "Setup Terraform ${{ env.TF_VERSION }}"
+      - name: Setup Terraform ${{ env.TF_VERSION }}
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: "Terraform Format Check"
+      - name: Terraform Format Check
         run: terraform fmt -check -recursive
 
-      - name: "Terraform Init"
+      - name: Terraform Init
         run: terraform init -input=false
 
-      - name: "Terraform Validate"
+      - name: Terraform Validate
         run: terraform validate
 
-      - name: "Terraform Plan"
+      - name: Terraform Plan
         run: |
           terraform plan \
             -out=tfplan \
@@ -184,16 +173,13 @@ jobs:
         env:
           TF_VAR_github_org: ${{ vars.GITHUB_ORG }}
 
-      - name: "Upload Terraform plan artifact"
+      - name: Upload Terraform plan artifact
         uses: actions/upload-artifact@v4
         with:
           name: tfplan
           path: tfplan
           retention-days: 1
 
-  # ---------------------------------------------------------
-  # Terraform Apply (production) — unchanged except permissions
-  # ---------------------------------------------------------
   terraform-apply:
     name: "Terraform Apply (production)"
     runs-on: ubuntu-latest
@@ -204,28 +190,28 @@ jobs:
       id-token: write
       contents: read
     steps:
-      - name: "Checkout"
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: "Configure AWS credentials via OIDC"
+      - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.AWS_IAM_ARN }}
+          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: "GitHubActions-TFApply-${{ github.run_number }}"
 
-      - name: "Setup Terraform ${{ env.TF_VERSION }}"
+      - name: Setup Terraform ${{ env.TF_VERSION }}
         uses: hashicorp/setup-terraform@v3
         with:
           terraform_version: ${{ env.TF_VERSION }}
 
-      - name: "Terraform Init"
+      - name: Terraform Init
         run: terraform init -input=false
 
-      - name: "Download Terraform plan artifact"
+      - name: Download Terraform plan artifact
         uses: actions/download-artifact@v4
         with:
           name: tfplan
 
-      - name: "Terraform Apply"
+      - name: Terraform Apply
         run: terraform apply -auto-approve -input=false tfplan
