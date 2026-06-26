@@ -60,7 +60,6 @@ jobs:
     permissions:
       id-token: write
       contents: read
-   
 
     steps:
       - name: Checkout
@@ -68,9 +67,6 @@ jobs:
 
       - name: Debug fetch raw OIDC id token and decode claims
         shell: bash
-        env:
-          ACTIONS_ID_TOKEN_REQUEST_URL: ${{ env.ACTIONS_ID_TOKEN_REQUEST_URL }}
-          ACTIONS_ID_TOKEN_REQUEST_TOKEN: ${{ env.ACTIONS_ID_TOKEN_REQUEST_TOKEN }}
         run: |
           set -euo pipefail
           echo "Requesting id token for audience sts.amazonaws.com"
@@ -103,7 +99,7 @@ jobs:
       - name: Debug direct aws sts assume-role-with-web-identity (diagnostic)
         shell: bash
         env:
-          ROLE_ARN: ${{ secrets.IAM_ROLE_ARN }}
+          ROLE_ARN: ${{ secrets.AWS_IAM_ARN }}
         run: |
           set -euo pipefail
           echo "Attempting aws sts assume-role-with-web-identity using id_token.jwt"
@@ -134,7 +130,7 @@ jobs:
       - name: Configure AWS credentials via OIDC (official action)
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_IAM_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: "GitHubActions-TFPlan-${{ github.run_number }}"
 
@@ -193,7 +189,7 @@ jobs:
       - name: Configure AWS credentials via OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: ${{ secrets.IAM_ROLE_ARN }}
+          role-to-assume: ${{ secrets.AWS_IAM_ARN }}
           aws-region: ${{ env.AWS_REGION }}
           role-session-name: "GitHubActions-TFApply-${{ github.run_number }}"
 
@@ -209,6 +205,7 @@ jobs:
         uses: actions/download-artifact@v4
         with:
           name: tfplan
+          path: .
 
       - name: Terraform Apply
         run: terraform apply -auto-approve -input=false tfplan
