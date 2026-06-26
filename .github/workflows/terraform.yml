@@ -60,8 +60,7 @@ jobs:
     permissions:
       id-token: write
       contents: read
-    env:
-      AWS_REGION: ${{ env.AWS_REGION }}
+   
 
     steps:
       - name: Checkout
