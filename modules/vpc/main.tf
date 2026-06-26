@@ -14,8 +14,8 @@ resource "aws_vpc" "this" {
   enable_dns_support   = true
 
   tags = {
-    Name                                             = "${var.project_name}-vpc"
-    "kubernetes.io/cluster/${var.eks_cluster_name}"  = "shared"
+    Name                                            = "${var.project_name}-vpc"
+    "kubernetes.io/cluster/${var.eks_cluster_name}" = "shared"
   }
 }
 
@@ -32,12 +32,12 @@ resource "aws_subnet" "public" {
   vpc_id                  = aws_vpc.this.id
   cidr_block              = var.public_subnet_cidrs[count.index]
   availability_zone       = var.availability_zones[count.index]
-  map_public_ip_on_launch = false   # No auto public IP
+  map_public_ip_on_launch = false # No auto public IP
 
   tags = {
-    Name                                             = "${var.project_name}-public-${count.index + 1}"
-    "kubernetes.io/role/elb"                         = "1"
-    "kubernetes.io/cluster/${var.eks_cluster_name}"  = "shared"
+    Name                                            = "${var.project_name}-public-${count.index + 1}"
+    "kubernetes.io/role/elb"                        = "1"
+    "kubernetes.io/cluster/${var.eks_cluster_name}" = "shared"
   }
 }
 
@@ -51,9 +51,9 @@ resource "aws_subnet" "private" {
   map_public_ip_on_launch = false
 
   tags = {
-    Name                                             = "${var.project_name}-private-${count.index + 1}"
-    "kubernetes.io/role/internal-elb"                = "1"
-    "kubernetes.io/cluster/${var.eks_cluster_name}"  = "owned"
+    Name                                            = "${var.project_name}-private-${count.index + 1}"
+    "kubernetes.io/role/internal-elb"               = "1"
+    "kubernetes.io/cluster/${var.eks_cluster_name}" = "owned"
   }
 }
 
