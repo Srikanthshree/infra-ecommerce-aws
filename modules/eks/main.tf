@@ -248,11 +248,14 @@ data "aws_iam_policy_document" "app_irsa_trust" {
       identifiers = [aws_iam_openid_connect_provider.eks.arn]
     }
 
-    # Scope to the exact ServiceAccount — namespace:ecommerce, name:backend
+    # Scope to ServiceAccounts in namespace:ecommerce that use AWS APIs (backend + catalog)
     condition {
       test     = "StringEquals"
       variable = "${local.oidc_issuer_host}:sub"
-      values   = ["system:serviceaccount:ecommerce:backend"]
+      values = [
+        "system:serviceaccount:ecommerce:backend",
+        "system:serviceaccount:ecommerce:catalog",
+      ]
     }
 
     condition {

@@ -40,6 +40,11 @@ output "ecr_frontend_url" {
   value       = module.eks.ecr_frontend_url
 }
 
+output "ecr_catalog_url" {
+  description = "ECR URL for catalog image — use in K8s manifests and deploy workflow"
+  value       = module.eks.ecr_catalog_url
+}
+
 output "app_irsa_role_arn" {
   description = "IRSA IAM Role ARN for backend pods — set as IRSA_ROLE_ARN in ecommerce-app repo secrets"
   value       = module.eks.app_irsa_role_arn
