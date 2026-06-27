@@ -137,7 +137,7 @@ resource "random_password" "db" {
 resource "aws_secretsmanager_secret" "db" {
   name                    = "${var.project_name}/${var.environment}/db-credentials"
   description             = "PostgreSQL master credentials for ${var.project_name} (${var.environment})"
-  recovery_window_in_days = 7
+  recovery_window_in_days = 0 # immediate deletion — avoids "pending deletion" conflict on destroy+apply cycles
 
   tags = {
     Name = "${var.project_name}-db-credentials"
@@ -216,16 +216,15 @@ resource "aws_db_instance" "this" {
   multi_az = true
 
   # Backups and maintenance
-  backup_retention_period   = 7
-  backup_window             = "02:00-03:00"
-  maintenance_window        = "sun:03:00-sun:04:00"
-  delete_automated_backups  = false
-  copy_tags_to_snapshot     = true
-  skip_final_snapshot       = false
-  final_snapshot_identifier = "${var.project_name}-postgres-final-snap"
+  backup_retention_period  = 7
+  backup_window            = "02:00-03:00"
+  maintenance_window       = "sun:03:00-sun:04:00"
+  delete_automated_backups = false
+  copy_tags_to_snapshot    = true
+  skip_final_snapshot      = true # no snapshot on destroy — avoids repeated snapshot-name conflict in CI/CD
 
   # Protection
-  deletion_protection        = true
+  deletion_protection        = false # must be false for terraform destroy to work
   auto_minor_version_upgrade = true
 
   # Observability

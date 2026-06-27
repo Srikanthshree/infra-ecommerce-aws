@@ -408,6 +408,7 @@ resource "aws_eks_node_group" "this" {
 resource "aws_ecr_repository" "backend" {
   name                 = "${var.project_name}/backend"
   image_tag_mutability = "IMMUTABLE"
+  force_delete         = true # allow destroy even when images exist
 
   image_scanning_configuration {
     scan_on_push = true
@@ -426,6 +427,7 @@ resource "aws_ecr_repository" "backend" {
 resource "aws_ecr_repository" "frontend" {
   name                 = "${var.project_name}/frontend"
   image_tag_mutability = "IMMUTABLE"
+  force_delete         = true # allow destroy even when images exist
 
   image_scanning_configuration {
     scan_on_push = true
@@ -487,6 +489,7 @@ resource "aws_ecr_lifecycle_policy" "frontend" {
 resource "aws_ecr_repository" "catalog" {
   name                 = "${var.project_name}/catalog"
   image_tag_mutability = "IMMUTABLE"
+  force_delete         = true # allow destroy even when images exist
 
   image_scanning_configuration { scan_on_push = true }
   encryption_configuration {

@@ -219,5 +219,29 @@ jobs:
           name: tfplan
           path: .
 
+      # ── Pre-apply: clear any AWS resources stuck in pending-deletion state ──
+      # Secrets Manager with recovery_window_in_days > 0 leaves secrets in
+      # "Pending Deletion" for days; re-creating with the same name fails.
+      # This step force-deletes them so the apply can recreate cleanly.
+      - name: "Pre-apply cleanup: force-delete pending-deletion secrets"
+        shell: bash
+        run: |
+          SECRET_ID="ecommerce/prod/db-credentials"
+          STATUS=$(aws secretsmanager describe-secret --secret-id "$SECRET_ID" \
+            --query 'DeletedDate' --output text 2>/dev/null || echo "NOT_FOUND")
+          if [ "$STATUS" = "NOT_FOUND" ]; then
+            echo "Secret not found — nothing to clean up."
+          elif [ "$STATUS" = "None" ]; then
+            echo "Secret exists and is active — Terraform will manage it normally."
+          else
+            echo "Secret is in Pending Deletion (scheduled: $STATUS) — force-deleting now..."
+            aws secretsmanager delete-secret \
+              --secret-id "$SECRET_ID" \
+              --force-delete-without-recovery \
+              --output json
+            echo "Force-delete requested. Waiting 5s for propagation..."
+            sleep 5
+          fi
+
       - name: Terraform Apply
         run: terraform apply -auto-approve -input=false tfplan
