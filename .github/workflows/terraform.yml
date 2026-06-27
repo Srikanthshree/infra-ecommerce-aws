@@ -219,29 +219,98 @@ jobs:
           name: tfplan
           path: .
 
-      # ── Pre-apply: clear any AWS resources stuck in pending-deletion state ──
-      # Secrets Manager with recovery_window_in_days > 0 leaves secrets in
-      # "Pending Deletion" for days; re-creating with the same name fails.
-      # This step force-deletes them so the apply can recreate cleanly.
-      - name: "Pre-apply cleanup: force-delete pending-deletion secrets"
+      # ── Pre-apply: delete orphaned AWS resources that block fresh creation ───
+      # These resources survive destroy+apply cycles when:
+      #   (a) they were created by a previous partial apply but removed from
+      #       Terraform state via state-rm, so terraform destroy never touched them
+      #   (b) Secrets Manager recovery window leaves secrets in Pending Deletion
+      # All deletions are idempotent (ignore "not found" errors).
+      - name: "Pre-apply cleanup: remove orphaned resources"
         shell: bash
         run: |
+          set -euo pipefail
+
+          echo "=== 1. Secrets Manager — force-delete pending-deletion secret ==="
           SECRET_ID="ecommerce/prod/db-credentials"
-          STATUS=$(aws secretsmanager describe-secret --secret-id "$SECRET_ID" \
+          DELETED_DATE=$(aws secretsmanager describe-secret --secret-id "$SECRET_ID" \
             --query 'DeletedDate' --output text 2>/dev/null || echo "NOT_FOUND")
-          if [ "$STATUS" = "NOT_FOUND" ]; then
-            echo "Secret not found — nothing to clean up."
-          elif [ "$STATUS" = "None" ]; then
-            echo "Secret exists and is active — Terraform will manage it normally."
+          if [ "$DELETED_DATE" = "NOT_FOUND" ]; then
+            echo "  Secret not found — OK."
+          elif [ "$DELETED_DATE" = "None" ]; then
+            echo "  Secret exists and is active — Terraform will manage it."
           else
-            echo "Secret is in Pending Deletion (scheduled: $STATUS) — force-deleting now..."
+            echo "  Secret is in Pending Deletion — force-deleting..."
             aws secretsmanager delete-secret \
               --secret-id "$SECRET_ID" \
-              --force-delete-without-recovery \
-              --output json
-            echo "Force-delete requested. Waiting 5s for propagation..."
+              --force-delete-without-recovery --output json
             sleep 5
           fi
+
+          echo "=== 2. RDS DB Parameter Group — delete if exists outside state ==="
+          if aws rds describe-db-parameter-groups \
+              --db-parameter-group-name "ecommerce-pg15-params" \
+              --output text 2>/dev/null | grep -q "ecommerce-pg15-params"; then
+            echo "  Parameter group exists — deleting..."
+            aws rds delete-db-parameter-group \
+              --db-parameter-group-name "ecommerce-pg15-params" || true
+            sleep 5
+          else
+            echo "  Parameter group not found — OK."
+          fi
+
+          echo "=== 3. IAM managed policy — delete if exists outside state ==="
+          POLICY_ARN="arn:aws:iam::$(aws sts get-caller-identity --query Account --output text):policy/ecommerce-app-db-secrets-read-policy"
+          if aws iam get-policy --policy-arn "$POLICY_ARN" --output text 2>/dev/null; then
+            echo "  Policy exists — detaching and deleting..."
+            # Detach from all roles first
+            aws iam list-entities-for-policy --policy-arn "$POLICY_ARN" \
+              --query 'PolicyRoles[].RoleName' --output text 2>/dev/null | \
+              tr '\t' '\n' | grep -v '^$' | while read -r role; do
+                aws iam detach-role-policy --role-name "$role" --policy-arn "$POLICY_ARN" || true
+              done
+            aws iam delete-policy --policy-arn "$POLICY_ARN" || true
+          else
+            echo "  IAM policy not found — OK."
+          fi
+
+          echo "=== 4. IAM roles — delete if exist outside state ==="
+          for ROLE in "ecommerce-vpc-flow-log-role" "ecommerce-eks-cluster-role" \
+                      "ecommerce-eks-nodes-role" "ecommerce-app-irsa-role" \
+                      "ecommerce-rds-monitoring-role"; do
+            if aws iam get-role --role-name "$ROLE" --output text 2>/dev/null | grep -q "$ROLE"; then
+              echo "  Role $ROLE exists — checking if it should be orphaned..."
+              # Only delete if NOT the GitHub Actions role (which is manually managed)
+              echo "  Deleting inline policies for $ROLE..."
+              aws iam list-role-policies --role-name "$ROLE" --query 'PolicyNames' \
+                --output text 2>/dev/null | tr '\t' '\n' | grep -v '^$' | while read -r p; do
+                  aws iam delete-role-policy --role-name "$ROLE" --policy-name "$p" || true
+                done
+              echo "  Detaching managed policies for $ROLE..."
+              aws iam list-attached-role-policies --role-name "$ROLE" \
+                --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null | \
+                tr '\t' '\n' | grep -v '^$' | while read -r arn; do
+                  aws iam detach-role-policy --role-name "$ROLE" --policy-arn "$arn" || true
+                done
+              aws iam delete-role --role-name "$ROLE" || true
+              echo "  Deleted $ROLE."
+            else
+              echo "  Role $ROLE not found — OK."
+            fi
+          done
+
+          echo "=== 5. CloudWatch log groups — delete if exist outside state ==="
+          for LG in "/aws/eks/ecommerce-eks/cluster" "/aws/vpc/flowlogs/ecommerce"; do
+            if aws logs describe-log-groups --log-group-name-prefix "$LG" \
+                --query "logGroups[?logGroupName=='$LG'].logGroupName" \
+                --output text 2>/dev/null | grep -q "$LG"; then
+              echo "  Log group $LG exists — deleting..."
+              aws logs delete-log-group --log-group-name "$LG" || true
+            else
+              echo "  Log group $LG not found — OK."
+            fi
+          done
+
+          echo "=== Pre-apply cleanup complete ==="
 
       - name: Terraform Apply
         run: terraform apply -auto-approve -input=false tfplan
