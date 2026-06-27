@@ -219,104 +219,31 @@ jobs:
           name: tfplan
           path: .
 
-      # ── Pre-apply: delete orphaned AWS resources that block fresh creation ───
-      # These resources survive destroy+apply cycles when they were created by
-      # a previous partial apply but removed from Terraform state, so terraform
-      # destroy never knew about them. All operations use || true (idempotent).
-      - name: "Pre-apply cleanup: remove orphaned resources"
+      # ── Pre-apply: ONLY fix Secrets Manager pending-deletion ─────────────
+      # IAM roles, parameter groups, and CloudWatch log groups are managed by
+      # Terraform state — deleting them causes 404 errors when Terraform tries
+      # to update them. Only the Secrets Manager secret needs manual cleanup
+      # because AWS puts it in Pending Deletion for 7 days after terraform destroy.
+      - name: "Pre-apply cleanup: fix pending-deletion Secrets Manager secret"
         shell: bash
         run: |
           ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-
-          echo "=== 1. Secrets Manager pending-deletion secret ==="
+          echo "=== Secrets Manager: force-delete if in Pending Deletion ==="
           DELETED_DATE=$(aws secretsmanager describe-secret \
             --secret-id "ecommerce/prod/db-credentials" \
             --query 'DeletedDate' --output text 2>/dev/null || echo "NOT_FOUND")
-          if [ "$DELETED_DATE" != "NOT_FOUND" ] && [ "$DELETED_DATE" != "None" ]; then
-            echo "  Force-deleting pending secret..."
+          if [ "$DELETED_DATE" = "NOT_FOUND" ]; then
+            echo "  Secret not found — OK."
+          elif [ "$DELETED_DATE" = "None" ]; then
+            echo "  Secret exists and active — Terraform will manage it."
+          else
+            echo "  Secret is Pending Deletion — force-deleting..."
             aws secretsmanager delete-secret \
               --secret-id "ecommerce/prod/db-credentials" \
               --force-delete-without-recovery --output json || true
             sleep 5
-          else
-            echo "  Secret OK (status: $DELETED_DATE)"
           fi
-
-          echo "=== 2. RDS DB Parameter Group ==="
-          aws rds describe-db-parameter-groups \
-            --db-parameter-group-name "ecommerce-pg15-params" \
-            --output text > /dev/null 2>&1 \
-            && { echo "  Exists — deleting..."; \
-                 aws rds delete-db-parameter-group \
-                   --db-parameter-group-name "ecommerce-pg15-params" || true; \
-                 sleep 3; } \
-            || echo "  Not found — OK."
-
-          echo "=== 3. IAM managed policy ==="
-          POLICY_ARN="arn:aws:iam::${ACCOUNT_ID}:policy/ecommerce-app-db-secrets-read-policy"
-          if aws iam get-policy --policy-arn "$POLICY_ARN" --output text > /dev/null 2>&1; then
-            echo "  Exists — detaching all roles and deleting..."
-            ROLES=$(aws iam list-entities-for-policy --policy-arn "$POLICY_ARN" \
-              --query 'PolicyRoles[].RoleName' --output text 2>/dev/null || echo "")
-            for role in $ROLES; do
-              [ -z "$role" ] && continue
-              aws iam detach-role-policy --role-name "$role" \
-                --policy-arn "$POLICY_ARN" || true
-            done
-            aws iam delete-policy --policy-arn "$POLICY_ARN" || true
-          else
-            echo "  Not found — OK."
-          fi
-
-          echo "=== 4. IAM roles ==="
-          for ROLE in ecommerce-vpc-flow-log-role ecommerce-eks-cluster-role \
-                      ecommerce-eks-nodes-role ecommerce-app-irsa-role \
-                      ecommerce-rds-monitoring-role; do
-            if aws iam get-role --role-name "$ROLE" --output text > /dev/null 2>&1; then
-              echo "  $ROLE exists — cleaning up..."
-              # remove inline policies
-              INLINE=$(aws iam list-role-policies --role-name "$ROLE" \
-                --query 'PolicyNames' --output text 2>/dev/null || echo "")
-              for p in $INLINE; do
-                [ -z "$p" ] && continue
-                aws iam delete-role-policy --role-name "$ROLE" --policy-name "$p" || true
-              done
-              # detach managed policies
-              ATTACHED=$(aws iam list-attached-role-policies --role-name "$ROLE" \
-                --query 'AttachedPolicies[].PolicyArn' --output text 2>/dev/null || echo "")
-              for arn in $ATTACHED; do
-                [ -z "$arn" ] && continue
-                aws iam detach-role-policy --role-name "$ROLE" --policy-arn "$arn" || true
-              done
-              # remove instance profiles if any
-              PROFILES=$(aws iam list-instance-profiles-for-role --role-name "$ROLE" \
-                --query 'InstanceProfiles[].InstanceProfileName' --output text 2>/dev/null || echo "")
-              for prof in $PROFILES; do
-                [ -z "$prof" ] && continue
-                aws iam remove-role-from-instance-profile --instance-profile-name "$prof" \
-                  --role-name "$ROLE" || true
-              done
-              aws iam delete-role --role-name "$ROLE" || true
-              echo "  $ROLE deleted."
-            else
-              echo "  $ROLE not found — OK."
-            fi
-          done
-
-          echo "=== 5. CloudWatch log groups ==="
-          for LG in "/aws/eks/ecommerce-eks/cluster" "/aws/vpc/flowlogs/ecommerce"; do
-            EXISTS=$(aws logs describe-log-groups --log-group-name-prefix "$LG" \
-              --query "logGroups[?logGroupName=='$LG'].logGroupName" \
-              --output text 2>/dev/null || echo "")
-            if [ "$EXISTS" = "$LG" ]; then
-              echo "  $LG exists — deleting..."
-              aws logs delete-log-group --log-group-name "$LG" || true
-            else
-              echo "  $LG not found — OK."
-            fi
-          done
-
-          echo "=== Pre-apply cleanup complete ==="
+          echo "=== Cleanup complete ==="
 
       - name: Terraform Apply
         id: tf_apply

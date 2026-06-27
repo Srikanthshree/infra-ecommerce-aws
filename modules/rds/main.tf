@@ -71,8 +71,9 @@ resource "aws_db_parameter_group" "this" {
   family = "postgres15"
 
   parameter {
-    name  = "ssl"
-    value = "1"
+    name         = "ssl"
+    value        = "1"
+    apply_method = "pending-reboot"
   }
 
   parameter {
