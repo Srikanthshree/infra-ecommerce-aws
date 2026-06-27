@@ -319,4 +319,22 @@ jobs:
           echo "=== Pre-apply cleanup complete ==="
 
       - name: Terraform Apply
-        run: terraform apply -auto-approve -input=false tfplan
+        id: tf_apply
+        continue-on-error: true
+        env:
+          TF_LOG: ERROR
+        run: |
+          terraform apply -auto-approve -input=false tfplan 2>&1 | tee terraform-apply.log
+          echo "exit_code=${PIPESTATUS[0]}" >> "$GITHUB_OUTPUT"
+
+      - name: Upload apply log (always — shows exact error on failure)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: terraform-apply-log
+          path: terraform-apply.log
+          retention-days: 3
+
+      - name: Fail if apply failed
+        if: steps.tf_apply.outputs.exit_code != '0'
+        run: exit 1
