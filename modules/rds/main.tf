@@ -111,7 +111,11 @@ resource "aws_db_parameter_group" "this" {
   }
 
   lifecycle {
-    create_before_destroy = true
+    # Ignore parameter changes after initial creation:
+    # - Prevents ssl static-parameter modification error (InvalidParameterValue)
+    # - Prevents create_before_destroy conflict (two groups same name)
+    # Parameters are set correctly at creation time and left unchanged.
+    ignore_changes = [parameter]
   }
 }
 
