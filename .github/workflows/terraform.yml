@@ -158,20 +158,26 @@ jobs:
         shell: bash
         run: |
           # The parameter group persists in AWS across failed apply cycles.
-          # If it exists in AWS but NOT in state, Terraform tries to CREATE
-          # it and gets DBParameterGroupAlreadyExists. Importing it first fixes this.
+          # Step 1: Remove any stale/deposed state for the parameter group.
+          #   A failed create_before_destroy replacement leaves a "deposed" entry
+          #   that blocks every subsequent apply with InvalidDBParameterGroupState.
+          # Step 2: If the group exists in AWS, import it cleanly so Terraform
+          #   knows it already exists (prevents DBParameterGroupAlreadyExists).
           PG_NAME="ecommerce-pg15-params"
+
+          echo "=== Step 1: Remove stale parameter group state ==="
+          terraform state rm module.rds.aws_db_parameter_group.this 2>/dev/null \
+            && echo "  Removed from state." \
+            || echo "  Not in state (OK)."
+
+          echo "=== Step 2: Re-import if exists in AWS ==="
           if aws rds describe-db-parameter-groups \
               --db-parameter-group-name "$PG_NAME" \
               --output text > /dev/null 2>&1; then
-            if ! terraform state list 2>/dev/null | grep -q "module.rds.aws_db_parameter_group"; then
-              echo "Parameter group $PG_NAME exists in AWS but not in state - importing..."
-              terraform import module.rds.aws_db_parameter_group.this "$PG_NAME" || true
-            else
-              echo "Parameter group already in state - OK."
-            fi
+            echo "  $PG_NAME exists in AWS - importing..."
+            terraform import module.rds.aws_db_parameter_group.this "$PG_NAME" || true
           else
-            echo "Parameter group $PG_NAME not found in AWS - Terraform will create it."
+            echo "  $PG_NAME not found in AWS - will be created fresh."
           fi
 
       - name: Terraform Validate
