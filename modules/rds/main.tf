@@ -70,11 +70,11 @@ resource "aws_db_parameter_group" "this" {
   name   = "${var.project_name}-pg15-params"
   family = "postgres15"
 
-  parameter {
-    name         = "ssl"
-    value        = "1"
-    apply_method = "pending-reboot"
-  }
+  # NOTE: ssl=1 is NOT specified here because:
+  # - In PostgreSQL 15 RDS, ssl is a STATIC, NON-MODIFIABLE parameter
+  # - ModifyDBParameterGroup rejects any attempt to set ssl
+  # - ssl=1 (TLS enforced) is already the RDS PostgreSQL 15 default
+  # - Specifying it would cause InvalidParameterValue during create/update
 
   parameter {
     name  = "log_connections"
