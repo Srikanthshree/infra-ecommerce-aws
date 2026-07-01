@@ -529,10 +529,10 @@ resource "aws_ecr_lifecycle_policy" "catalog" {
 # update-kubeconfig --name <cluster> --region <region>.
 # =============================================================================
 resource "aws_eks_access_entry" "admins" {
-  for_each     = toset(var.eks_admin_iam_arns)
-  cluster_name = aws_eks_cluster.this.name
+  for_each      = toset(var.eks_admin_iam_arns)
+  cluster_name  = aws_eks_cluster.this.name
   principal_arn = each.value
-  type         = "STANDARD"
+  type          = "STANDARD"
 
   tags = {
     Name = "${var.project_name}-eks-admin-${basename(each.value)}"
