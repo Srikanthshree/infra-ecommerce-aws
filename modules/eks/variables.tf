@@ -57,3 +57,9 @@ variable "eks_node_disk_size_gb" {
   description = "EBS root volume size (GB) per node."
   type        = number
 }
+
+variable "eks_admin_iam_arns" {
+  description = "IAM principal ARNs (users or roles) granted cluster-admin via EKS access entries. Add your local IAM user ARN here so kubectl works outside of CI."
+  type        = list(string)
+  default     = []
+}

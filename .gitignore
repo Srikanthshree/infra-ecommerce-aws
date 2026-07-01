@@ -28,4 +28,7 @@ Thumbs.db
 .idea/
 .vscode/
 *.swp
+
+# ── Local documentation / notes (do not commit) ──────────────────────────────
+*.md
 *.swo

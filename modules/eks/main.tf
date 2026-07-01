@@ -204,6 +204,16 @@ resource "aws_eks_cluster" "this" {
     "scheduler",
   ]
 
+  # Enable both EKS Access Entry API and legacy aws-auth ConfigMap.
+  # API_AND_CONFIG_MAP allows IAM users/roles to be granted K8s RBAC via
+  # aws_eks_access_entry resources (below) without touching the ConfigMap.
+  # bootstrap_cluster_creator_admin_permissions grants the Terraform caller
+  # (GitHub Actions OIDC role) cluster-admin so it can manage K8s resources.
+  access_config {
+    authentication_mode                         = "API_AND_CONFIG_MAP"
+    bootstrap_cluster_creator_admin_permissions = true
+  }
+
   depends_on = [
     aws_iam_role_policy_attachment.eks_cluster_policy,
     aws_cloudwatch_log_group.eks,
@@ -509,4 +519,35 @@ resource "aws_ecr_lifecycle_policy" "catalog" {
       action       = { type = "expire" }
     }]
   })
+}
+
+# =============================================================================
+# EKS Access Entries — cluster-admin for local/CI IAM principals
+#
+# Grants AmazonEKSClusterAdminPolicy to every ARN in var.eks_admin_iam_arns.
+# Add your IAM user ARN here so kubectl works locally after aws eks
+# update-kubeconfig --name <cluster> --region <region>.
+# =============================================================================
+resource "aws_eks_access_entry" "admins" {
+  for_each     = toset(var.eks_admin_iam_arns)
+  cluster_name = aws_eks_cluster.this.name
+  principal_arn = each.value
+  type         = "STANDARD"
+
+  tags = {
+    Name = "${var.project_name}-eks-admin-${basename(each.value)}"
+  }
+}
+
+resource "aws_eks_access_policy_association" "admins" {
+  for_each      = toset(var.eks_admin_iam_arns)
+  cluster_name  = aws_eks_cluster.this.name
+  principal_arn = each.value
+  policy_arn    = "arn:aws:eks::aws:cluster-access-policy/AmazonEKSClusterAdminPolicy"
+
+  access_scope {
+    type = "cluster"
+  }
+
+  depends_on = [aws_eks_access_entry.admins]
 }

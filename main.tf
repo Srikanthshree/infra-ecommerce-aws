@@ -38,6 +38,7 @@ module "eks" {
   eks_node_min_size       = var.eks_node_min_size
   eks_node_max_size       = var.eks_node_max_size
   eks_node_disk_size_gb   = var.eks_node_disk_size_gb
+  eks_admin_iam_arns      = var.eks_admin_iam_arns
 }
 
 module "rds" {

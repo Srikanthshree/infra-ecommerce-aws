@@ -147,3 +147,9 @@ variable "github_org" {
   type        = string
   default     = "Srikanthshree"
 }
+
+variable "eks_admin_iam_arns" {
+  description = "IAM principal ARNs granted cluster-admin access for local kubectl (e.g. your IAM user). These become EKS access entries with AmazonEKSClusterAdminPolicy."
+  type        = list(string)
+  default     = ["arn:aws:iam::986314681697:user/test"]
+}
